@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"reflect"
+	"strings"
 	"sync"
 )
 
@@ -18,50 +20,8 @@ type Settings struct {
 // sources := settings.GetString("sources")
 // fmt.Print(sources)
 
-func Init() {
-	var xfSettings string
-
-	out, err := getSettings("get", "org.gnome.desktop.input-sources", "sources")
-	if err != nil {
-		log.Printf("Error on get settings: %s", err.Error())
-		return
-	}
-
-	settings, err := convertVariantToJson(out)
-	if err != nil {
-		log.Printf("Error on unmarshal of sources: %s", err.Error())
-		return
-	}
-
-	for _, set := range settings {
-		xfSettings += set.Xkb
-		xfSettings += ","
-	}
-
-	_, err = setXfSettings("-c", "keyboard-layout", "-np", "/Default/XkbDisable", "-s", "false")
-
-	if err != nil {
-		log.Printf("Error on get settings: %s", err.Error())
-		return
-	}
-
-	_, err = setXfSettings("-c", "keyboard-layout", "-np", "/Default/XkbLayout", "-s", xfSettings)
-
-	if err != nil {
-		log.Printf("Error on get settings: %s", err.Error())
-		return
-	}
-
-	return
-}
-
-func compareSettings(gsettings string, xfconf string) bool {
-	value := false
-
-	return value
-}
-
 func PollgSettings(channel chan string, wg *sync.WaitGroup) {
+	log.Println("Polling gsettings ..")
 	cmd := exec.Command("gsettings", "monitor", "org.gnome.desktop.input-sources", "sources")
 
 	stdout, err := cmd.StdoutPipe()
@@ -83,7 +43,23 @@ func PollgSettings(channel chan string, wg *sync.WaitGroup) {
 		n, err = stdout.Read(buff)
 
 		if n > 0 {
-			fmt.Printf("taken %d chars %s", n, string(buff[:n]))
+			xconf, err := getXfSettings()
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			gsets, err := getGSettings()
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if !reflect.DeepEqual(xconf, gsets) {
+				log.Println("Not equal so setting xfconf ..")
+				setXfSettings(xconf)
+				log.Println("Xfconf set ..")
+			}
 		}
 	}
 
@@ -93,7 +69,8 @@ func PollgSettings(channel chan string, wg *sync.WaitGroup) {
 }
 
 func PollXfconf(channel chan string, wg *sync.WaitGroup) {
-	cmd := exec.Command("xfconf-query", "-c", "keyboard-layout", "-m", "-v")
+	log.Println("Polling xfconf setting")
+	cmd := exec.Command("xfconf-query", "-c", "keyboard-layout", "-p", "/Default/XkbLayout")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Fatal(err)
@@ -105,7 +82,6 @@ func PollXfconf(channel chan string, wg *sync.WaitGroup) {
 		log.Fatal(err)
 	}
 
-	// stdout, err := cmd.StdoutPipe()
 	buff := make([]byte, 100)
 	var n int
 
@@ -113,7 +89,24 @@ func PollXfconf(channel chan string, wg *sync.WaitGroup) {
 		n, err = stdout.Read(buff)
 
 		if n > 0 {
-			fmt.Printf("taken %d chars %s", n, string(buff[:n]))
+			log.Println(buff)
+			xconf, err := getXfSettings()
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			gsets, err := getGSettings()
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if !reflect.DeepEqual(xconf, gsets) {
+				log.Println("Not equal so setting gsettings ..")
+				setGSettings(xconf)
+				log.Println("gettings set ..")
+			}
 		}
 	}
 
@@ -122,28 +115,55 @@ func PollXfconf(channel chan string, wg *sync.WaitGroup) {
 	}
 }
 
-func getSettings(cmd ...string) ([]byte, error) {
-	c := exec.Command("gsettings", cmd...)
+func getGSettings() ([]Settings, error) {
+	c := exec.Command("gsettings", "get", "org.gnome.desktop.input-sources", "sources")
+	out, err := c.CombinedOutput()
+
+	if err != nil {
+		log.Println(err)
+	}
+
+	return convertVariantToJson(out)
+}
+
+func getXfSettings() ([]Settings, error) {
+	c := exec.Command("xfconf-query", "-c", "keyboard-layout", "-p", "/Default/XkbLayout")
+	out, err := c.CombinedOutput()
+
+	if err != nil {
+		log.Println(err)
+	}
+
+	return convertXfConfToSettings(out)
+}
+
+func setXfSettings(settings []Settings) ([]byte, error) {
+	var xfSettings string
+
+	for _, set := range settings {
+		xfSettings += set.Xkb
+		xfSettings += ","
+	}
+
+	log.Println(xfSettings)
+
+	c := exec.Command("xfconf-query", "-c", "keyboard-layout", "-np", "/Default/XkbLayout", "-s", xfSettings)
 	return c.CombinedOutput()
 }
 
-func setXfSettings(cmd ...string) ([]byte, error) {
-	c := exec.Command("xfconf-query", cmd...)
+func setGSettings(settings []Settings) ([]byte, error) {
+	var variant string
+
+	for _, set := range settings {
+		variant += fmt.Sprintf("('xkb', '%s'),", set.Xkb)
+	}
+
+	variant = fmt.Sprintf("[%s]", variant[0:len(variant)-1])
+
+	log.Println(variant)
+
+	c := exec.Command("gsettings", "set", "org.gnome.desktop.input-sources", "sources", variant)
 	return c.CombinedOutput()
-}
-
-func convertJsonToVariant(variant []byte) (string, error) {
-	var str string
-
-	// hacky way of converting the a(ss) to a json array
-	variant = bytes.ReplaceAll(variant, []byte(`"`), []byte(`'`))
-	variant = bytes.ReplaceAll(variant, []byte(`':`), []byte(`',`))
-	variant = bytes.ReplaceAll(variant, []byte(`{`), []byte(`(`))
-	variant = bytes.ReplaceAll(variant, []byte(`}`), []byte(`)`))
-
-	str = string(variant)
-
-	return str, nil
 }
 
 func convertVariantToJson(variant []byte) ([]Settings, error) {
@@ -159,6 +179,24 @@ func convertVariantToJson(variant []byte) ([]Settings, error) {
 
 	if err != nil {
 		return settings, err
+	}
+
+	return settings, nil
+}
+
+func convertXfConfToSettings(out []byte) ([]Settings, error) {
+	var settings []Settings
+
+	str := string(out)
+
+	xkbs := strings.Split(str, ",")
+
+	for _, xkb := range xkbs {
+		setting := Settings{
+			Xkb: xkb,
+		}
+
+		settings = append(settings, setting)
 	}
 
 	return settings, nil
