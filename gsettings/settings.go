@@ -147,8 +147,6 @@ func setXfSettings(settings []Settings) ([]byte, error) {
 		xfSettings += ","
 	}
 
-	log.Println(xfSettings)
-
 	c := exec.Command("xfconf-query", "-c", "keyboard-layout", "-np", "/Default/XkbLayout", "-s", xfSettings)
 	return c.CombinedOutput()
 }
@@ -164,8 +162,6 @@ func setGSettings(settings []Settings) ([]byte, error) {
 
 	variant = fmt.Sprintf("[%s]", variant[0:len(variant)-1])
 
-	log.Println(variant)
-
 	c := exec.Command("gsettings", "set", "org.gnome.desktop.input-sources", "sources", variant)
 	return c.CombinedOutput()
 }
@@ -173,13 +169,15 @@ func setGSettings(settings []Settings) ([]byte, error) {
 func convertVariantToJson(variant []byte) ([]Settings, error) {
 	var settings []Settings
 
+	if bytes.Contains(variant, []byte(`@a(ss)`)) {
+		return settings, nil
+	}
+
 	// hacky way of converting the a(ss) to a json array
 	variant = bytes.ReplaceAll(variant, []byte(`',`), []byte(`':`))
 	variant = bytes.ReplaceAll(variant, []byte(`'`), []byte(`"`))
 	variant = bytes.ReplaceAll(variant, []byte(`(`), []byte(`{`))
 	variant = bytes.ReplaceAll(variant, []byte(`)`), []byte(`}`))
-
-	fmt.Println(string(variant))
 
 	err := json.Unmarshal(variant, &settings)
 
