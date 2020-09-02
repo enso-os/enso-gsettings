@@ -21,7 +21,7 @@ type Settings struct {
 // fmt.Print(sources)
 
 func PollgSettings(channel chan string, wg *sync.WaitGroup) {
-	log.Println("Polling gsettings ..")
+	log.Println("Polling gsettings")
 	cmd := exec.Command("gsettings", "monitor", "org.gnome.desktop.input-sources", "sources")
 
 	stdout, err := cmd.StdoutPipe()
@@ -43,6 +43,7 @@ func PollgSettings(channel chan string, wg *sync.WaitGroup) {
 		n, err = stdout.Read(buff)
 
 		if n > 0 {
+			log.Println(string(buff))
 			xconf, err := getXfSettings()
 
 			if err != nil {
@@ -55,9 +56,9 @@ func PollgSettings(channel chan string, wg *sync.WaitGroup) {
 				log.Fatal(err)
 			}
 
-			if !reflect.DeepEqual(xconf, gsets) {
+			if err == nil && !reflect.DeepEqual(xconf, gsets) {
 				log.Println("Not equal so setting xfconf ..")
-				setXfSettings(xconf)
+				setXfSettings(gsets)
 				log.Println("Xfconf set ..")
 			}
 		}
@@ -70,7 +71,8 @@ func PollgSettings(channel chan string, wg *sync.WaitGroup) {
 
 func PollXfconf(channel chan string, wg *sync.WaitGroup) {
 	log.Println("Polling xfconf setting")
-	cmd := exec.Command("xfconf-query", "-c", "keyboard-layout", "-p", "/Default/XkbLayout")
+	cmd := exec.Command("xfconf-query", "-c", "keyboard-layout", "-m", "-v")
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Fatal(err)
@@ -89,7 +91,7 @@ func PollXfconf(channel chan string, wg *sync.WaitGroup) {
 		n, err = stdout.Read(buff)
 
 		if n > 0 {
-			log.Println(buff)
+			log.Println(string(buff))
 			xconf, err := getXfSettings()
 
 			if err != nil {
@@ -102,7 +104,7 @@ func PollXfconf(channel chan string, wg *sync.WaitGroup) {
 				log.Fatal(err)
 			}
 
-			if !reflect.DeepEqual(xconf, gsets) {
+			if err == nil && !reflect.DeepEqual(xconf, gsets) {
 				log.Println("Not equal so setting gsettings ..")
 				setGSettings(xconf)
 				log.Println("gettings set ..")
@@ -155,7 +157,9 @@ func setGSettings(settings []Settings) ([]byte, error) {
 	var variant string
 
 	for _, set := range settings {
-		variant += fmt.Sprintf("('xkb', '%s'),", set.Xkb)
+		if set.Xkb != "" {
+			variant += fmt.Sprintf("('xkb', '%s'),", set.Xkb)
+		}
 	}
 
 	variant = fmt.Sprintf("[%s]", variant[0:len(variant)-1])
@@ -175,6 +179,8 @@ func convertVariantToJson(variant []byte) ([]Settings, error) {
 	variant = bytes.ReplaceAll(variant, []byte(`(`), []byte(`{`))
 	variant = bytes.ReplaceAll(variant, []byte(`)`), []byte(`}`))
 
+	fmt.Println(string(variant))
+
 	err := json.Unmarshal(variant, &settings)
 
 	if err != nil {
@@ -189,14 +195,18 @@ func convertXfConfToSettings(out []byte) ([]Settings, error) {
 
 	str := string(out)
 
+	str = strings.Trim(str, "\n")
+
 	xkbs := strings.Split(str, ",")
 
 	for _, xkb := range xkbs {
-		setting := Settings{
-			Xkb: xkb,
-		}
+		if xkb != "" {
+			setting := Settings{
+				Xkb: xkb,
+			}
 
-		settings = append(settings, setting)
+			settings = append(settings, setting)
+		}
 	}
 
 	return settings, nil
