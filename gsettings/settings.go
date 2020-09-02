@@ -169,6 +169,10 @@ func setGSettings(settings []Settings) ([]byte, error) {
 func convertVariantToJson(variant []byte) ([]Settings, error) {
 	var settings []Settings
 
+	if bytes.Contains(variant, []byte(`a(ss)`)) {
+		return settings, nil
+	}
+
 	// hacky way of converting the a(ss) to a json array
 	variant = bytes.ReplaceAll(variant, []byte(`',`), []byte(`':`))
 	variant = bytes.ReplaceAll(variant, []byte(`'`), []byte(`"`))
