@@ -133,8 +133,17 @@ func getXfSettings() ([]Settings, error) {
 	out, err := c.CombinedOutput()
 
 	if err != nil {
+		// if the setting doesn't exist, create it
+		cmd := exec.Command("xfconf-query", "-c", "keyboard-layout", "-p", "/Default/XkbLayout", "-n", "-t", "string", "-s", "")
+		cmd.CombinedOutput()
 		log.Println(err)
+
+		settings := []Settings{}
+
+		return settings, nil
 	}
+
+	fmt.Println(string(out))
 
 	return convertXfConfToSettings(out)
 }
@@ -159,8 +168,9 @@ func setGSettings(settings []Settings) ([]byte, error) {
 			variant += fmt.Sprintf("('xkb', '%s'),", set.Xkb)
 		}
 	}
-
-	variant = fmt.Sprintf("[%s]", variant[0:len(variant)-1])
+	if variant != "" {
+		variant = fmt.Sprintf("[%s]", variant[0:len(variant)-1])
+	}
 
 	c := exec.Command("gsettings", "set", "org.gnome.desktop.input-sources", "sources", variant)
 	return c.CombinedOutput()

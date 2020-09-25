@@ -3,7 +3,7 @@ package main
 import (
 	"sync"
 
-	"github.com/nick92/settings/gsettings"
+	"enso-os/gsettings/common"
 )
 
 func main() {
