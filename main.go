@@ -1,9 +1,8 @@
 package main
 
 import (
+	gsettings "enso-os/gsettings/common"
 	"sync"
-
-	"enso-os/gsettings/common"
 )
 
 func main() {
